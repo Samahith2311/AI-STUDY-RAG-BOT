@@ -16,6 +16,7 @@ export default function LibraryPage() {
   const [docs, setDocs] = useState<Doc[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState('')
+  const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function loadDocs() {
@@ -29,9 +30,7 @@ export default function LibraryPage() {
 
   useEffect(() => { loadDocs() }, [])
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  async function processFile(file: File) {
     setUploading(true)
     setUploadMsg('')
     const form = new FormData()
@@ -48,6 +47,18 @@ export default function LibraryPage() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) processFile(file)
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) processFile(file)
+  }
+
   async function handleDelete(id: string) {
     const sb = createClient()
     await sb.from('documents').delete().eq('id', id)
@@ -61,7 +72,8 @@ export default function LibraryPage() {
       : `${(bytes / 1024 / 1024).toFixed(1)} MB`
   }
 
-  const isError = uploadMsg.includes('failed') || uploadMsg.includes('error') || uploadMsg.includes('Unsupported') || uploadMsg.includes('Could not')
+  const isError = uploadMsg.includes('failed') || uploadMsg.includes('error') ||
+    uploadMsg.includes('Unsupported') || uploadMsg.includes('Could not')
 
   return (
     <div className="min-h-screen bg-sage pb-24">
@@ -80,7 +92,7 @@ export default function LibraryPage() {
           type="file"
           accept=".pdf,.txt,.md"
           className="hidden"
-          onChange={handleUpload}
+          onChange={handleFileInput}
         />
       </div>
 
@@ -90,13 +102,28 @@ export default function LibraryPage() {
         </p>
       )}
 
+      {/* Drag & drop zone */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        className={`mx-5 mb-5 border-2 border-dashed rounded-2xl p-6 text-center transition-colors ${
+          dragging
+            ? 'border-primary bg-green-50'
+            : 'border-gray-200 bg-white'
+        }`}
+      >
+        <Upload size={24} className={`mx-auto mb-2 ${dragging ? 'text-primary' : 'text-muted'}`} />
+        <p className="text-sm text-muted">
+          {dragging ? 'Drop to upload' : 'Drag & drop a PDF, .txt, or .md file here'}
+        </p>
+      </div>
+
       {docs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 px-8 text-center">
-          <div className="w-16 h-16 bg-white rounded-2xl shadow-card flex items-center justify-center mb-4">
-            <FileText size={28} className="text-primary" />
-          </div>
+        <div className="flex flex-col items-center justify-center py-10 px-8 text-center">
+          <FileText size={28} className="text-muted mb-3" />
           <p className="font-semibold text-ink mb-1">No documents yet</p>
-          <p className="text-sm text-muted">Upload a PDF, .txt, or .md file to start chatting with your materials.</p>
+          <p className="text-sm text-muted">Upload your first file to start chatting with your materials.</p>
         </div>
       ) : (
         <ul className="mx-5 space-y-3">

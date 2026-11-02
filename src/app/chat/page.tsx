@@ -1,26 +1,77 @@
 'use client'
 
 import { useChat } from 'ai/react'
-import { useState, useRef, useEffect } from 'react'
-import { Send, Zap } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Send, Zap, RotateCcw, Trash2 } from 'lucide-react'
 import BottomNav from '@/components/BottomNav'
 import ChatMessage from '@/components/ChatMessage'
 import MascotIcon from '@/components/MascotIcon'
+import { createClient } from '@/lib/supabase/client'
 
 const subjects = ['Biology', 'Math', 'History', 'Chemistry', 'Economics', 'Physics']
 
 export default function ChatPage() {
   const [deepThink, setDeepThink] = useState(false)
+  const [convId, setConvId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const sb = createClient()
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
-    api: '/api/chat',
-    body: { deepThink },
-  })
+  // Create or resume a conversation on mount
+  useEffect(() => {
+    sb.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      // load most recent conversation
+      const { data } = await sb
+        .from('conversations')
+        .select('id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      if (data) {
+        setConvId(data.id)
+      } else {
+        const { data: newConv } = await sb
+          .from('conversations')
+          .insert({ user_id: user.id })
+          .select()
+          .single()
+        if (newConv) setConvId(newConv.id)
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const saveMessage = useCallback(
+    async (role: 'user' | 'assistant', content: string) => {
+      if (!convId) return
+      await sb.from('chat_messages').insert({ conversation_id: convId, role, content })
+    },
+    [convId, sb]
+  )
+
+  const { messages, input, handleInputChange, handleSubmit, isLoading, error, reload, setMessages } =
+    useChat({
+      api: '/api/chat',
+      body: { deepThink },
+      onFinish: msg => saveMessage('assistant', msg.content),
+    })
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  async function startNewChat() {
+    setMessages([])
+    const { data: { user } } = await sb.auth.getUser()
+    if (!user) return
+    const { data } = await sb
+      .from('conversations')
+      .insert({ user_id: user.id })
+      .select()
+      .single()
+    if (data) setConvId(data.id)
+  }
 
   const isIdle = messages.length === 0
 
@@ -29,19 +80,31 @@ export default function ChatPage() {
       {/* Header */}
       <div className="px-5 pt-10 pb-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-ink">Chat</h1>
-        <button
-          onClick={() => setDeepThink(v => !v)}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-            deepThink
-              ? 'gradient-primary text-white shadow-card'
-              : 'bg-white text-muted border border-gray-200'
-          }`}
-          aria-pressed={deepThink}
-          title="Deep Think: retrieve more context and reason step-by-step"
-        >
-          <Zap size={13} />
-          Deep Think
-        </button>
+        <div className="flex items-center gap-2">
+          {!isIdle && (
+            <button
+              onClick={startNewChat}
+              className="flex items-center gap-1.5 bg-white rounded-full px-3 py-1.5 text-xs font-medium text-muted shadow-card hover:text-ink transition-colors"
+              title="New chat"
+            >
+              <Trash2 size={12} />
+              New chat
+            </button>
+          )}
+          <button
+            onClick={() => setDeepThink(v => !v)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              deepThink
+                ? 'gradient-primary text-white shadow-card'
+                : 'bg-white text-muted border border-gray-200'
+            }`}
+            aria-pressed={deepThink}
+            title="Deep Think: retrieve more context and reason step-by-step"
+          >
+            <Zap size={13} />
+            Deep Think
+          </button>
+        </div>
       </div>
 
       {/* Messages or idle state */}
@@ -72,7 +135,7 @@ export default function ChatPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-4 py-4">
+          <div className="space-y-6 py-4">
             {messages.map(m => (
               <ChatMessage key={m.id} message={m} />
             ))}
@@ -88,19 +151,32 @@ export default function ChatPage() {
               </div>
             )}
             {error && (
-              <p className="text-center text-sm text-red-500 px-4">
-                {error.message ?? 'Something went wrong. Please try again.'}
-              </p>
+              <div className="flex flex-col items-center gap-2 py-2">
+                <p className="text-center text-sm text-red-500">
+                  {error.message ?? 'Something went wrong.'}
+                </p>
+                <button
+                  onClick={() => reload()}
+                  className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                >
+                  <RotateCcw size={12} />
+                  Retry
+                </button>
+              </div>
             )}
             <div ref={bottomRef} />
           </div>
         )}
       </div>
 
-      {/* Input bar — sits above the bottom nav */}
+      {/* Input bar */}
       <div className="fixed bottom-16 left-0 right-0 px-4 pb-2">
         <form
-          onSubmit={handleSubmit}
+          onSubmit={e => {
+            const userInput = input.trim()
+            handleSubmit(e)
+            if (userInput) saveMessage('user', userInput)
+          }}
           className="flex items-center gap-2 bg-white rounded-2xl shadow-card-lg px-4 py-3"
         >
           <input
