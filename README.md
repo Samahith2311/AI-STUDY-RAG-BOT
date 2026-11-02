@@ -1,5 +1,7 @@
 # Study Buddy — AI RAG Chatbot
 
+**Live:** https://ai-study-rag-bot.vercel.app
+
 Chat with your own study materials. Upload PDFs, notes, or text files; get accurate, cited answers streamed back in real time. Installable as a PWA.
 
 ## Stack
